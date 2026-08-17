@@ -200,6 +200,9 @@ Set up the environment and install the package (editable) plus the dev tools:
 
 ```
 uv sync
+
+# to install this version
+ uv tool install .
 ```
 
 Run the CLI in development mode:
