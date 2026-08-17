@@ -448,7 +448,7 @@ wheels = [
 
 [[package]]
 name = "qobuz-dl"
-version = "0.9.9.10"
+version = "0.9.9.10.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
