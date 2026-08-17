@@ -4,6 +4,7 @@
 
 import hashlib
 import logging
+import re
 import time
 
 import requests
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class Client:
-    def __init__(self, email, pwd, app_id, secrets):
+    def __init__(self, email, pwd, app_id, secrets, skip_auth=False):
         logger.info(f"{YELLOW}Logging...")
         self.secrets = secrets
         self.id = str(app_id)
@@ -38,8 +39,9 @@ class Client:
         )
         self.base = "https://www.qobuz.com/api.json/0.2/"
         self.sec = None
-        self.auth(email, pwd)
-        self.cfg_setup()
+        if not skip_auth:
+            self.auth(email, pwd)
+            self.cfg_setup()
 
     def api_call(self, epoint, **kwargs):
         if epoint == "user/login":
@@ -123,13 +125,83 @@ class Client:
         return r.json()
 
     def auth(self, email, pwd):
-        usr_info = self.api_call("user/login", email=email, pwd=pwd)
+        # Qobuz deprecated email/password login (2026). `pwd` must be a
+        # user_auth_token, obtained from 'qobuz-dl oauth' or a browser session.
+        token = (pwd or "").strip()
+        if len(token) < 20 or re.fullmatch(r"[0-9a-f]{32}", token):
+            raise AuthenticationError(
+                "Authentication requires a valid user_auth_token.\n"
+                "Qobuz no longer supports email/password login.\n"
+                "Run 'qobuz-dl oauth' to log in through your browser.\n" + RESET
+            )
+        self.uat = token
+        self.session.headers.update({"X-User-Auth-Token": self.uat})
+        r = self.session.post(self.base + "user/login", data={"extra": "partner"})
+        if r.status_code == 401:
+            raise AuthenticationError(
+                "Token expired or invalid.\nRun 'qobuz-dl oauth' to log in again.\n"
+                + RESET
+            )
+        r.raise_for_status()
+        usr_info = r.json()
         if not usr_info["user"]["credential"]["parameters"]:
             raise IneligibleError("Free accounts are not eligible to download tracks.")
         self.uat = usr_info["user_auth_token"]
         self.session.headers.update({"X-User-Auth-Token": self.uat})
         self.label = usr_info["user"]["credential"]["parameters"]["short_label"]
+        logger.info(f"{GREEN}Logged: OK")
         logger.info(f"{GREEN}Membership: {self.label}")
+        self._save_token(self.uat)
+
+    @staticmethod
+    def _save_token(token):
+        """Persist a refreshed auth token back to config.ini."""
+        try:
+            import configparser
+            import os
+
+            if os.name == "nt":
+                config_dir = os.path.join(os.environ.get("APPDATA", ""), "qobuz-dl")
+            else:
+                config_dir = os.path.join(
+                    os.environ["HOME"], ".config", "qobuz-dl"
+                )
+            config_file = os.path.join(config_dir, "config.ini")
+            config = configparser.ConfigParser()
+            config.read(config_file)
+            config["DEFAULT"]["password"] = token
+            with open(config_file, "w") as f:
+                config.write(f)
+            logger.info(f"{GREEN}Auth token saved to config.")
+        except Exception as e:  # noqa
+            logger.warning(f"{YELLOW}Could not save refreshed token: {e}")
+
+    def login_with_oauth_code(self, code, private_key):
+        params = {"code": code, "private_key": private_key}
+        r = self.session.get(self.base + "oauth/callback", params=params)
+        if r.status_code in (400, 401):
+            raise AuthenticationError("OAuth code rejected.\n" + RESET)
+        r.raise_for_status()
+        token = r.json().get("token")
+        if not token:
+            raise AuthenticationError("No token in OAuth callback response")
+        self.uat = token
+        self.session.headers.update({"X-User-Auth-Token": self.uat})
+        r = self.session.post(self.base + "user/login", data={"extra": "partner"})
+        if r.status_code == 401:
+            raise AuthenticationError("OAuth token rejected.\n" + RESET)
+        r.raise_for_status()
+        usr_info = r.json()
+        if not usr_info["user"]["credential"]["parameters"]:
+            raise IneligibleError("Free accounts are not eligible to download tracks.")
+        self.uat = usr_info["user_auth_token"]
+        self.session.headers.update({"X-User-Auth-Token": self.uat})
+        self.label = usr_info["user"]["credential"]["parameters"]["short_label"]
+        logger.info(f"{GREEN}Logged: OK")
+        logger.info(f"{GREEN}Membership: {self.label}")
+        self._save_token(self.uat)
+        self.cfg_setup()
+        return usr_info
 
     def multi_meta(self, epoint, key, id, type):
         total = 1

@@ -30,17 +30,22 @@ pip3 install --upgrade qobuz-dl
 pip3 install windows-curses
 pip3 install --upgrade qobuz-dl
 ```
-#### Run qobuz-dl and enter your credentials
-##### Linux / MAC OS
+
+#### First run: configure and log in
+
+Qobuz no longer supports email/password login. Run `qobuz-dl -r` to set up
+your config file, then log in through your browser with:
+
 ```
-qobuz-dl
-```
-##### Windows
-```
-qobuz-dl.exe
+qobuz-dl oauth
 ```
 
-> If something fails, run `qobuz-dl -r` to reset your config file.
+This opens a Qobuz login URL in your browser (you'll need an active
+subscription). After you sign in, qobuz-dl captures the login locally,
+stores your auth token in `config.ini` and is ready to use.
+
+> The token is automatically refreshed and saved back to your config on
+> every run. If it ever expires, just run `qobuz-dl oauth` again.
 
 ## Examples
 
@@ -125,28 +130,42 @@ Reset your config file
 qobuz-dl -r
 ```
 
+Log in / refresh your Qobuz auth token through the browser
+```
+qobuz-dl oauth
+```
+
+> `qobuz-dl oauth` is required after running `qobuz-dl -r`, or whenever
+> your token expires. Email/password login is no longer supported by Qobuz.
+> You can also paste a `user_auth_token` manually (grab it from your browser:
+> DevTools → Network → look for `user_auth_token` in any Qobuz API response)
+> as the `password` value in `~/.config/qobuz-dl/config.ini`.
+
 By default, `qobuz-dl` will skip already downloaded items by ID with the message `This release ID ({item_id}) was already downloaded`. To avoid this check, add the flag `--no-db` at the end of a command. In extreme cases (e.g. lost collection), you can run `qobuz-dl -p` to completely reset the database.
 
 ## Usage
 ```
-usage: qobuz-dl [-h] [-r] {fun,dl,lucky} ...
+usage: qobuz-dl [-h] [-r] [-p] [-sc] {fun,dl,lucky,oauth} ...
 
 The ultimate Qobuz music downloader.
 See usage examples on https://github.com/vitiko98/qobuz-dl
 
-optional arguments:
+options:
   -h, --help      show this help message and exit
   -r, --reset     create/reset config file
   -p, --purge     purge/delete downloaded-IDs database
+  -sc, --show-config
+                  show configuration
 
 commands:
   run qobuz-dl <command> --help for more info
   (e.g. qobuz-dl fun --help)
 
-  {fun,dl,lucky}
+  {fun,dl,lucky,oauth}
     fun           interactive mode
     dl            input mode
     lucky         lucky mode
+    oauth         browser-based login
 ```
 
 ## Module usage 
@@ -158,17 +177,50 @@ from qobuz_dl.core import QobuzDL
 
 logging.basicConfig(level=logging.INFO)
 
+# 'password' must be a valid user_auth_token. Get one with:
+#   qobuz-dl oauth   (then it's stored in config.ini)
 email = "your@email.com"
-password = "your_password"
+token = "user_auth_token_from_qobuz-dl_oauth"
 
 qobuz = QobuzDL()
-qobuz.get_tokens() # get 'app_id' and 'secrets' attrs
-qobuz.initialize_client(email, password, qobuz.app_id, qobuz.secrets)
+qobuz.get_tokens()  # get 'app_id' and 'secrets' attrs
+qobuz.initialize_client(email, token, qobuz.app_id, qobuz.secrets)
 
 qobuz.handle_url("https://play.qobuz.com/album/va4j3hdlwaubc")
 ```
 
 Attributes, methods and parameters have been named as self-explanatory as possible.
+
+## Development
+
+This project uses [uv](https://docs.astral.sh/uv/) for dependency and
+virtual environment management (Python 3.12+).
+
+Set up the environment and install the package (editable) plus the dev tools:
+
+```
+uv sync
+```
+
+Run the CLI in development mode:
+
+```
+uv run qobuz-dl --help
+uv run qobuz-dl oauth
+uv run qobuz-dl dl https://play.qobuz.com/album/0886443927087
+```
+
+Or invoke it as a module:
+
+```
+uv run python -c "from qobuz_dl.cli import main; main()" dl https://play.qobuz.com/track/8767428
+```
+
+Lint with flake8:
+
+```
+uv run flake8 qobuz_dl/
+```
 
 ## A note about Qo-DL
 `qobuz-dl` is inspired in the discontinued Qo-DL-Reborn. This tool uses two modules from Qo-DL: `qopy` and `spoofer`, both written by Sorrow446 and DashLt.

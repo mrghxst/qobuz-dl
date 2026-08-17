@@ -1,5 +1,4 @@
 import configparser
-import hashlib
 import logging
 import glob
 import os
@@ -10,6 +9,12 @@ from qobuz_dl.color import GREEN, RED, YELLOW
 from qobuz_dl.commands import qobuz_dl_args
 from qobuz_dl.core import QobuzDL
 from qobuz_dl.downloader import DEFAULT_FOLDER, DEFAULT_TRACK
+from qobuz_dl.exceptions import (
+    AuthenticationError,
+    IneligibleError,
+    InvalidAppIdError,
+    InvalidAppSecretError,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,8 +35,7 @@ def _reset_config(config_file):
     logging.info(f"{YELLOW}Creating config file: {config_file}")
     config = configparser.ConfigParser()
     config["DEFAULT"]["email"] = input("Enter your email:\n- ")
-    password = input("Enter your password\n- ")
-    config["DEFAULT"]["password"] = hashlib.md5(password.encode("utf-8")).hexdigest()
+    config["DEFAULT"]["password"] = ""
     config["DEFAULT"]["default_folder"] = (
         input("Folder for downloads (leave empty for default 'Qobuz Downloads')\n- ")
         or "Qobuz Downloads"
@@ -61,10 +65,11 @@ def _reset_config(config_file):
     config["DEFAULT"]["smart_discography"] = "false"
     with open(config_file, "w") as configfile:
         config.write(configfile)
+    logging.info(f"{GREEN}Config file updated. Edit more options in {config_file}")
     logging.info(
-        f"{GREEN}Config file updated. Edit more options in {config_file}"
-        "\nso you don't have to call custom flags every time you run "
-        "a qobuz-dl command."
+        f"{YELLOW}Qobuz no longer supports email/password login.\n"
+        "Run 'qobuz-dl oauth' to log in through your browser and save your "
+        "auth token."
     )
 
 
@@ -177,7 +182,20 @@ def main():
         track_format=arguments.track_format or track_format,
         smart_discography=arguments.smart_discography or smart_discography,
     )
-    qobuz.initialize_client(email, password, app_id, secrets)
+    if arguments.command == "oauth":
+        qobuz.get_tokens()
+        qobuz.handle_oauth_login()
+        sys.exit(0)
+
+    try:
+        qobuz.initialize_client(email, password, app_id, secrets)
+    except (
+        AuthenticationError,
+        InvalidAppIdError,
+        InvalidAppSecretError,
+        IneligibleError,
+    ) as error:
+        sys.exit(f"{RED}{error}")
 
     _handle_commands(qobuz, arguments)
 
