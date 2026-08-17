@@ -55,6 +55,18 @@ def dl_args(subparsers):
     return download
 
 
+def oauth_args(subparsers):
+    oauth = subparsers.add_parser(
+        "oauth",
+        description=(
+            "Log in through your browser and save the Qobuz auth token "
+            "(required since Qobuz deprecated email/password login)."
+        ),
+        help="browser-based login",
+    )
+    return oauth
+
+
 def add_common_arg(custom_parser, default_folder, default_quality):
     custom_parser.add_argument(
         "-d",
@@ -165,9 +177,10 @@ def qobuz_dl_args(
     interactive = fun_args(subparsers, default_limit)
     download = dl_args(subparsers)
     lucky = lucky_args(subparsers)
+    oauth = oauth_args(subparsers)
     [
         add_common_arg(i, default_folder, default_quality)
-        for i in (interactive, download, lucky)
+        for i in (interactive, download, lucky, oauth)
     ]
 
     return parser
