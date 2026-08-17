@@ -31,6 +31,10 @@ WEB_URL = "https://play.qobuz.com/"
 ARTISTS_SELECTOR = "td.chartlist-artist > a"
 TITLE_SELECTOR = "td.chartlist-name > a"
 QUALITIES = {
+    1: "1 - ffmpeg 32kbps",
+    2: "2 - ffmpeg 64kbps",
+    3: "3 - ffmpeg 128kbps",
+    4: "4 - ffmpeg 192kbps",
     5: "5 - MP3",
     6: "6 - 16 bit, 44.1kHz",
     7: "7 - 24 bit, <96kHz",
@@ -396,6 +400,10 @@ class QobuzDL:
             raise
 
         qualities = [
+            {"q_string": "FFmpeg 32", "q": 1},
+            {"q_string": "FFmpeg 64", "q": 2},
+            {"q_string": "FFmpeg 128", "q": 3},
+            {"q_string": "FFmpeg 192", "q": 4},
             {"q_string": "320", "q": 5},
             {"q_string": "Lossless", "q": 6},
             {"q_string": "Hi-res =< 96kHz", "q": 7},

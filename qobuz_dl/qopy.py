@@ -92,17 +92,21 @@ class Client:
             unix = time.time()
             track_id = kwargs["id"]
             fmt_id = kwargs["fmt_id"]
-            if int(fmt_id) not in (5, 6, 7, 27):
-                raise InvalidQuality("Invalid quality id: choose between 5, 6, 7 or 27")
+            # qualities 1-4 are transcoded locally from 320kbps MP3
+            api_fmt = 5 if int(fmt_id) in (1, 2, 3, 4) else fmt_id
+            if int(fmt_id) not in (1, 2, 3, 4, 5, 6, 7, 27):
+                raise InvalidQuality(
+                    "Invalid quality id: choose between 1, 2, 3, 4, 5, 6, 7 or 27"
+                )
             r_sig = "trackgetFileUrlformat_id{}intentstreamtrack_id{}{}{}".format(
-                fmt_id, track_id, unix, kwargs.get("sec", self.sec)
+                api_fmt, track_id, unix, kwargs.get("sec", self.sec)
             )
             r_sig_hashed = hashlib.md5(r_sig.encode("utf-8")).hexdigest()
             params = {
                 "request_ts": unix,
                 "request_sig": r_sig_hashed,
                 "track_id": track_id,
-                "format_id": fmt_id,
+                "format_id": api_fmt,
                 "intent": "stream",
             }
         else:

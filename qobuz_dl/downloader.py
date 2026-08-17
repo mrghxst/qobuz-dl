@@ -23,6 +23,9 @@ DEFAULT_FORMATS = {
     ],
 }
 
+# qualities 1-4 download 320kbps MP3 and transcode locally with ffmpeg
+FFMPEG_BITRATES = {1: 32, 2: 64, 3: 128, 4: 192}
+
 DEFAULT_FOLDER = "{artist} - {album} ({year}) [{bit_depth}B-{sampling_rate}kHz]"
 DEFAULT_TRACK = "{tracknumber}. {tracktitle}"
 
@@ -61,6 +64,10 @@ class Download:
             self.download_release()
         else:
             self.download_track()
+
+    @property
+    def _ffmpeg_bitrate(self):
+        return FFMPEG_BITRATES.get(int(self.quality))
 
     def download_release(self):
         count = 0
@@ -116,7 +123,7 @@ class Download:
         for i in meta["tracks"]["items"]:
             parse = self.client.get_track_url(i["id"], fmt_id=self.quality)
             if "sample" not in parse and parse["sampling_rate"]:
-                is_mp3 = True if int(self.quality) == 5 else False
+                is_mp3 = True if int(self.quality) in (1, 2, 3, 4, 5) else False
                 self._download_and_tag(
                     dirn,
                     count,
@@ -144,7 +151,7 @@ class Download:
             file_format, quality_met, bit_depth, sampling_rate = format_info
 
             folder_format, track_format = _clean_format_str(
-                self.folder_format, self.track_format, str(bit_depth)
+                self.folder_format, self.track_format, file_format
             )
 
             if not self.downgrade_quality and not quality_met:
@@ -168,7 +175,7 @@ class Download:
                     dirn,
                     og_quality=self.cover_og_quality,
                 )
-            is_mp3 = True if int(self.quality) == 5 else False
+            is_mp3 = True if int(self.quality) in (1, 2, 3, 4, 5) else False
             self._download_and_tag(
                 dirn,
                 1,
@@ -223,6 +230,9 @@ class Download:
             return
 
         tqdm_download(url, filename, filename)
+        bitrate = self._ffmpeg_bitrate
+        if bitrate:
+            filename = self._transcode(filename, bitrate)
         tag_function = metadata.tag_mp3 if is_mp3 else metadata.tag_flac
         try:
             tag_function(
@@ -236,6 +246,25 @@ class Download:
             )
         except Exception as e:
             logger.error(f"{RED}Error tagging the file: {e}", exc_info=True)
+
+    @staticmethod
+    def _transcode(filename, bitrate):
+        from subprocess import DEVNULL, CalledProcessError, run
+
+        out = filename + ".mp3"
+        try:
+            run(
+                ["ffmpeg", "-y", "-i", filename, "-vn", "-b:a", f"{bitrate}k", out],
+                check=True,
+                stdout=DEVNULL,
+                stderr=DEVNULL,
+            )
+        except (FileNotFoundError, CalledProcessError) as e:
+            raise RuntimeError(
+                f"{RED}ffmpeg transcoding to {bitrate}kbps failed: {e}"
+            )
+        os.remove(filename)
+        return out
 
     @staticmethod
     def _get_filename_attr(artist, track_metadata, track_title):
@@ -275,7 +304,7 @@ class Download:
 
     def _get_format(self, item_dict, is_track_id=False, track_url_dict=None):
         quality_met = True
-        if int(self.quality) == 5:
+        if int(self.quality) in (1, 2, 3, 4, 5):
             return ("MP3", quality_met, None, None)
         track_dict = item_dict
         if not is_track_id:

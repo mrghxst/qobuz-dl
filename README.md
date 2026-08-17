@@ -47,6 +47,29 @@ stores your auth token in `config.ini` and is ready to use.
 > The token is automatically refreshed and saved back to your config on
 > every run. If it ever expires, just run `qobuz-dl oauth` again.
 
+## Quality options
+
+Choose the download quality with the `-q` flag (or set it in your config):
+
+| Quality | Description |
+|---------|-------------|
+| `1` | FFmpeg 32kbps (transcoded from 320kbps MP3) |
+| `2` | FFmpeg 64kbps (transcoded from 320kbps MP3) |
+| `3` | FFmpeg 128kbps (transcoded from 320kbps MP3) |
+| `4` | FFmpeg 192kbps (transcoded from 320kbps MP3) |
+| `5` | MP3 320kbps |
+| `6` | Lossless 16 bit, 44.1kHz |
+| `7` | Hi-Res 24 bit, <96kHz |
+| `27` | Hi-Res 24 bit, >96kHz |
+
+Qualities `1`-`4` download the 320kbps MP3 and convert it locally to the
+target bitrate, which requires [`ffmpeg`](https://ffmpeg.org/) to be
+installed and available on your `PATH`. Example:
+
+```
+qobuz-dl dl https://play.qobuz.com/album/qxjbxh1dc3xyb -q 3
+```
+
 ## Examples
 
 ### Download mode

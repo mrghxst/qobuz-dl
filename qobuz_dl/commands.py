@@ -81,8 +81,9 @@ def add_common_arg(custom_parser, default_folder, default_quality):
         metavar="int",
         default=default_quality,
         help=(
-            'audio "quality" (5, 6, 7, 27)\n'
-            f"[320, LOSSLESS, 24B<=96KHZ, 24B>96KHZ] (default: {default_quality})"
+            'audio "quality" (1, 2, 3, 4, 5, 6, 7, 27)\n'
+            "[ffmpeg 32, 64, 128, 192, 320, LOSSLESS, "
+            f"24B<=96KHZ, 24B>96KHZ] (default: {default_quality})"
         ),
     )
     custom_parser.add_argument(
