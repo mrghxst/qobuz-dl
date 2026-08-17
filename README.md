@@ -74,6 +74,10 @@ Download all the music from an artist except singles, EPs and VA releases
 ```
 qobuz-dl dl https://play.qobuz.com/artist/2528676 --albums-only
 ```
+Download all the music to only playlist folder, no database, no cover in mp3 format
+```bash
+qdl dl --no-db -q 5 --no-cover --no-m3u -ff "." -tf "{artist}-{tracktitle}"
+```
 
 #### Last.fm playlists
 > Last.fm has a new feature for creating playlists: you can create your own based on the music you listen to or you can import one from popular streaming services like Spotify, Apple Music and Youtube. Visit: `https://www.last.fm/user/<your profile>/playlists` (e.g. https://www.last.fm/user/vitiko98/playlists) to get started.
