@@ -28,6 +28,7 @@ else:
 CONFIG_FILE = os.path.join(OS_CONFIG, "qobuz-dl", "config.ini")
 
 WEB_URL = "https://play.qobuz.com/"
+OAUTH_TIMEOUT = 300
 ARTISTS_SELECTOR = "td.chartlist-artist > a"
 TITLE_SELECTOR = "td.chartlist-name > a"
 QUALITIES = {
@@ -106,19 +107,11 @@ class QobuzDL:
     def handle_oauth_login(self, code=None):
         import socket
         import threading
-        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         from urllib.parse import parse_qs, urlparse
 
         if not code:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("", 0))
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                port = s.getsockname()[1]
-
-            oauth_url = (
-                "https://www.qobuz.com/signin/oauth"
-                f"?ext_app_id={self.app_id}&redirect_url=http://localhost:{port}"
-            )
+            captured = threading.Event()
 
             class OAuthHandler(BaseHTTPRequestHandler):
                 auth_code = None
@@ -139,15 +132,47 @@ class QobuzDL:
                             b"successful</h2><p>You can close this tab and "
                             b"return to your terminal.</p></body></html>"
                         )
+                        captured.set()
                     else:
-                        self.send_response(400)
+                        # Browsers also request /favicon.ico and may probe the
+                        # port; these must not end the wait for the callback.
+                        self.send_response(404)
                         self.end_headers()
-                        self.wfile.write(
-                            b"<html><body><h2>Login failed</h2></body></html>"
-                        )
 
                 def log_message(self, *args):
                     pass
+
+            class _OAuthServer(ThreadingHTTPServer):
+                # Threaded so a speculative browser preconnect (an accepted
+                # socket that never sends a request) cannot block the real
+                # callback behind it.
+                daemon_threads = True
+                allow_reuse_address = True
+
+            class _DualStackServer(_OAuthServer):
+                address_family = socket.AF_INET6
+
+                def server_bind(self):
+                    try:
+                        self.socket.setsockopt(
+                            socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0
+                        )
+                    except (AttributeError, OSError):
+                        pass
+                    super().server_bind()
+
+            # Bind to port 0 and read back the assigned port, so the port
+            # cannot be taken between choosing it and listening on it.
+            try:
+                server = _DualStackServer(("::", 0), OAuthHandler)
+            except OSError:
+                server = _OAuthServer(("127.0.0.1", 0), OAuthHandler)
+            port = server.server_address[1]
+
+            oauth_url = (
+                "https://www.qobuz.com/signin/oauth"
+                f"?ext_app_id={self.app_id}&redirect_url=http://localhost:{port}"
+            )
 
             logger.info(
                 f"{YELLOW}Open this URL in your browser to authenticate with "
@@ -159,20 +184,22 @@ class QobuzDL:
                 "login automatically."
             )
 
-            server = HTTPServer(("127.0.0.1", port), OAuthHandler)
-            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
 
             try:
-                input(
-                    f"{YELLOW}Press Enter after completing login in your "
-                    "browser..."
-                )
-            except EOFError:
-                pass
+                if not captured.wait(timeout=OAUTH_TIMEOUT):
+                    logger.error(
+                        f"{RED}Timed out after {OAUTH_TIMEOUT}s waiting for "
+                        "the Qobuz callback."
+                    )
+            except KeyboardInterrupt:
+                logger.info(f"{YELLOW}Cancelled.")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
-            server.server_close()
-            thread.join(timeout=1)
             code = OAuthHandler.auth_code
 
             if not code:
