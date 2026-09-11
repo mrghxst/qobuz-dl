@@ -4,7 +4,7 @@ pkg_name = "qobuz-dl"
 
 
 def read_file(fname):
-    with open(fname, "r") as f:
+    with open(fname, "r", encoding="utf-8") as f:
         return f.read()
 
 
