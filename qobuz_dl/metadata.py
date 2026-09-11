@@ -159,6 +159,15 @@ def tag_flac(
         audio["DATE"] = album["release_date_original"]
         audio["COPYRIGHT"] = _format_copyright(album.get("copyright") or "n/a")
 
+    # The exact release, so upload tools (smoked-salmon) open it on Qobuz instead of searching by name
+    album_meta = d["album"] if istrack else album
+    if album_meta.get("id"):
+        audio["URL"] = album_meta.get("url") or f"https://www.qobuz.com/album/-/{album_meta['id']}"
+    if album_meta.get("upc"):
+        audio["UPC"] = album_meta["upc"]
+    if d.get("isrc"):
+        audio["ISRC"] = d["isrc"]
+
     if em_image:
         _embed_flac_img(root_dir, audio)
 
