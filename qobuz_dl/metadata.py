@@ -1,6 +1,8 @@
 import re
 import os
+import hashlib
 import logging
+import subprocess
 
 from mutagen.flac import FLAC, Picture
 import mutagen.id3 as id3
@@ -107,6 +109,45 @@ def _embed_id3_img(root_dir, audio: id3.ID3):
         audio.add(id3.APIC(3, "image/jpeg", 3, "", cover.read()))
 
 
+def _store_md5(audio: FLAC, filename):
+    """Store the audio's MD5 in STREAMINFO (Qobuz leaves it unset), or verify it.
+
+    Only the checksum is written: the audio frames stay byte-for-byte as
+    downloaded. Decoding the whole file is also the integrity check, so a broken
+    download raises here and is never renamed to its final name.
+    """
+    if audio.info.md5_signature:
+        result = subprocess.run(
+            ["flac", "--silent", "--warnings-as-errors", "--test", filename],
+            capture_output=True,
+        )
+        if result.returncode:
+            error = result.stderr.decode(errors="replace").strip()
+            raise ValueError(f"flac could not verify the download: {error}")
+        return
+
+    # flac's raw output is the exact byte layout libFLAC hashes for STREAMINFO
+    command = [
+        "flac", "--decode", "--silent", "--stdout", "--force-raw-format",
+        "--endian=little", "--sign=signed", filename,
+    ]
+    md5 = hashlib.md5()
+    with subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ) as proc:
+        for chunk in iter(lambda: proc.stdout.read(1 << 20), b""):
+            md5.update(chunk)
+        error = proc.stderr.read().decode(errors="replace").strip()
+    if proc.returncode:
+        raise ValueError(f"flac could not decode the download: {error}")
+    audio.info.md5_signature = int.from_bytes(md5.digest(), "big")
+
+
+def has_md5(path) -> bool:
+    """Whether a FLAC file carries an MD5 checksum of its audio."""
+    return bool(FLAC(path).info.md5_signature)
+
+
 # Use KeyError catching instead of dict.get to avoid empty tags
 def tag_flac(
     filename, root_dir, final_name, d: dict, album, istrack=True, em_image=False
@@ -167,6 +208,11 @@ def tag_flac(
         audio["UPC"] = album_meta["upc"]
     if d.get("isrc"):
         audio["ISRC"] = d["isrc"]
+
+    try:
+        _store_md5(audio, filename)
+    except FileNotFoundError:
+        logger.warning("flac is not installed: MD5 not stored, file not verified")
 
     if em_image:
         _embed_flac_img(root_dir, audio)

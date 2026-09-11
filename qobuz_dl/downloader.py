@@ -26,6 +26,9 @@ DEFAULT_FORMATS = {
 # qualities 1-4 download 320kbps MP3 and transcode locally with ffmpeg
 FFMPEG_BITRATES = {1: 32, 2: 64, 3: 128, 4: 192}
 
+# highest bit depth and sampling rate (kHz) each FLAC quality delivers
+QUALITY_CAPS = {6: (16, 44.1), 7: (24, 96), 27: (24, 192)}
+
 DEFAULT_FOLDER = "{artist} - {album} ({year}) [{bit_depth}B-{sampling_rate}kHz]"
 DEFAULT_TRACK = "{tracknumber}. {tracktitle}"
 
@@ -60,10 +63,10 @@ class Download:
         self.track_format = track_format or DEFAULT_TRACK
 
     def download_id_by_type(self, track=True):
+        """Returns False when an album came out incomplete."""
         if not track:
-            self.download_release()
-        else:
-            self.download_track()
+            return self.download_release()
+        return self.download_track()
 
     @property
     def _ffmpeg_bitrate(self):
@@ -87,6 +90,9 @@ class Download:
 
         format_info = self._get_format(meta)
         file_format, quality_met, bit_depth, sampling_rate = format_info
+        bit_depth, sampling_rate = _album_resolution(
+            meta["tracks"]["items"], int(self.quality), bit_depth, sampling_rate
+        )
 
         if not self.downgrade_quality and not quality_met:
             logger.info(
@@ -135,9 +141,12 @@ class Download:
                     i["media_number"] if is_multiple else None,
                 )
             else:
-                logger.info(f"{OFF}Demo. Skipping")
+                logger.info(
+                    f"{RED}Track {i['track_number']} is only a preview "
+                    "(not purchased or not available): skipped"
+                )
             count = count + 1
-        logger.info(f"{GREEN}Completed")
+        return self._check_complete(dirn, meta)
 
     def download_track(self):
         parse = self.client.get_track_url(self.item_id, self.quality)
@@ -267,6 +276,43 @@ class Download:
         return out
 
     @staticmethod
+    def _check_complete(dirn, meta):
+        """Say whether the folder holds the whole album, all tagged and verified.
+
+        An incomplete folder must not pass for the full release, so it is
+        reported in red and kept out of the database.
+        """
+        expected = meta.get("tracks_count") or len(meta["tracks"]["items"])
+        tracks, leftovers = [], []
+        for root, _, files in os.walk(dirn):
+            for name in files:
+                if name.endswith((".flac", ".mp3")):
+                    tracks.append(os.path.join(root, name))
+                elif name.endswith(".tmp"):
+                    leftovers.append(name)
+
+        problems = []
+        if len(tracks) < expected:
+            problems.append(f"only {len(tracks)} of {expected} tracks")
+        if leftovers:
+            problems.append(f"{len(leftovers)} track(s) failed tagging or verification")
+        if problems:
+            logger.info(
+                f"{RED}INCOMPLETE, do not upload: {'; '.join(problems)}. "
+                "Run the same download again to fetch what is missing."
+            )
+            return False
+
+        no_md5 = [t for t in tracks if t.endswith(".flac") and not metadata.has_md5(t)]
+        if no_md5:
+            logger.info(
+                f"{YELLOW}{len(no_md5)} file(s) have no MD5 (is flac installed?)"
+            )
+        verified = "" if no_md5 else " and verified"
+        logger.info(f"{GREEN}Completed: all {expected} tracks downloaded{verified}")
+        return True
+
+    @staticmethod
     def _get_filename_attr(artist, track_metadata, track_title):
         return {
             "artist": artist,
@@ -362,6 +408,32 @@ def _get_description(item: dict, track_title, multiple=None):
     if multiple:
         downloading_title = f"[Disc {multiple}] {downloading_title}"
     return downloading_title
+
+
+def _album_resolution(tracks, quality, bit_depth, sampling_rate):
+    """Folder bit depth and sampling rate, joined like "44.1+48" when tracks differ.
+
+    The single values come from the first track's stream, so an album mixing
+    resolutions would otherwise be named after that one track.
+    """
+    if quality not in QUALITY_CAPS or bit_depth is None:
+        return bit_depth, sampling_rate
+    max_depth, max_rate = QUALITY_CAPS[quality]
+    depths = {
+        min(t["maximum_bit_depth"], max_depth)
+        for t in tracks
+        if t.get("maximum_bit_depth")
+    }
+    rates = {
+        min(t["maximum_sampling_rate"], max_rate)
+        for t in tracks
+        if t.get("maximum_sampling_rate")
+    }
+    if len(depths) > 1:
+        bit_depth = "+".join(f"{depth:g}" for depth in sorted(depths))
+    if len(rates) > 1:
+        sampling_rate = "+".join(f"{rate:g}" for rate in sorted(rates))
+    return bit_depth, sampling_rate
 
 
 def _get_title(item_dict):
